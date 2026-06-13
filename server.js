@@ -7,13 +7,22 @@ const USERNAME = 'nemis';
 const PASSWORD = 'blackedge2026';
 const PORT = process.env.PORT || 3000;
 
+function fetchM3U(callback) {
+    https.get(M3U_URL, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => callback(null, data));
+    }).on('error', err => callback(err));
+}
+
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const path = parsedUrl.pathname;
     const query = parsedUrl.query;
+    const auth = query.username === USERNAME && query.password === PASSWORD;
 
     if (path === '/get.php') {
-        if (query.username === USERNAME && query.password === PASSWORD) {
+        if (auth) {
             https.get(M3U_URL, (m3uRes) => {
                 res.writeHead(200, { 'Content-Type': 'application/x-mpegurl' });
                 m3uRes.pipe(res);
@@ -27,7 +36,15 @@ const server = http.createServer((req, res) => {
         }
     }
     else if (path === '/player_api.php') {
-        if (query.username === USERNAME && query.password === PASSWORD) {
+        if (!auth) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ user_info: { auth: 0 } }));
+            return;
+        }
+
+        const action = query.action;
+
+        if (!action) {
             const info = {
                 user_info: {
                     username: USERNAME,
@@ -55,9 +72,76 @@ const server = http.createServer((req, res) => {
             };
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(info));
-        } else {
-            res.writeHead(401);
-            res.end(JSON.stringify({ user_info: { auth: 0 } }));
+        }
+        else if (action === 'get_live_categories') {
+            const categories = [
+                { category_id: "1", category_name: "USA VIP", parent_id: 0 },
+                { category_id: "2", category_name: "Deportes", parent_id: 0 },
+                { category_id: "3", category_name: "Noticias", parent_id: 0 },
+                { category_id: "4", category_name: "Peliculas", parent_id: 0 },
+                { category_id: "5", category_name: "Latinoamerica", parent_id: 0 }
+            ];
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(categories));
+        }
+        else if (action === 'get_live_streams') {
+            fetchM3U((err, data) => {
+                if (err) {
+                    res.writeHead(500);
+                    res.end('[]');
+                    return;
+                }
+                const lines = data.split('\n');
+                const streams = [];
+                let id = 1;
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].startsWith('#EXTINF')) {
+                        const nameMatch = lines[i].match(/,(.+)$/);
+                        const groupMatch = lines[i].match(/group-title="([^"]*)"/);
+                        const logoMatch = lines[i].match(/tvg-logo="([^"]*)"/);
+                        const streamUrl = lines[i+1] ? lines[i+1].trim() : '';
+                        if (streamUrl && !streamUrl.startsWith('#')) {
+                            streams.push({
+                                num: id,
+                                name: nameMatch ? nameMatch[1].trim() : 'Canal ' + id,
+                                stream_type: "live",
+                                stream_id: id,
+                                stream_icon: logoMatch ? logoMatch[1] : '',
+                                epg_channel_id: '',
+                                added: '1609459200',
+                                category_id: '1',
+                                custom_sid: '',
+                                tv_archive: 0,
+                                direct_source: streamUrl,
+                                tv_archive_duration: 0
+                            });
+                            id++;
+                        }
+                    }
+                }
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(streams));
+            });
+        }
+        else if (action === 'get_vod_categories') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('[]');
+        }
+        else if (action === 'get_vod_streams') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('[]');
+        }
+        else if (action === 'get_series_categories') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('[]');
+        }
+        else if (action === 'get_series') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('[]');
+        }
+        else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('[]');
         }
     }
     else {
