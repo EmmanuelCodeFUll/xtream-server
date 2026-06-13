@@ -1,7 +1,6 @@
-﻿const http = require('http');
+const http = require('http');
 const https = require('https');
 const url = require('url');
-const fs = require('fs');
 
 const M3U_URL = 'https://mi-lista-iptv.netlify.app/MiLista_Verificada.m3u';
 const USERNAME = 'nemis';
@@ -13,19 +12,20 @@ const server = http.createServer((req, res) => {
     const path = parsedUrl.pathname;
     const query = parsedUrl.query;
 
-    // Xtream Codes API endpoint
     if (path === '/get.php') {
         if (query.username === USERNAME && query.password === PASSWORD) {
             https.get(M3U_URL, (m3uRes) => {
                 res.writeHead(200, { 'Content-Type': 'application/x-mpegurl' });
                 m3uRes.pipe(res);
+            }).on('error', (e) => {
+                res.writeHead(500);
+                res.end('Error: ' + e.message);
             });
         } else {
             res.writeHead(401);
             res.end('Unauthorized');
         }
     }
-    // Player API
     else if (path === '/player_api.php') {
         if (query.username === USERNAME && query.password === PASSWORD) {
             const info = {
@@ -35,17 +35,17 @@ const server = http.createServer((req, res) => {
                     message: "Mi Lista IPTV",
                     auth: 1,
                     status: "Active",
-                    exp_date: "9999999999",
+                    exp_date: "2556143999",
                     is_trial: "0",
                     active_cons: "1",
                     created_at: "1609459200",
                     max_connections: "5",
-                    allowed_output_formats: ["m3u8", "ts"]
+                    allowed_output_formats: ["m3u8", "ts", "rtmp"]
                 },
                 server_info: {
-                    url: process.env.RAILWAY_PUBLIC_DOMAIN || "localhost",
-                    port: PORT,
-                    https_port: PORT,
+                    url: "xtream-server.onrender.com",
+                    port: "80",
+                    https_port: "443",
                     server_protocol: "http",
                     rtmp_port: "25462",
                     timezone: "America/New_York",
@@ -67,5 +67,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log('Server running on port ' + PORT);
 });
