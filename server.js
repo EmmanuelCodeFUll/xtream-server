@@ -22,75 +22,32 @@ const server = http.createServer((req, res) => {
     const auth = query.username === USERNAME && query.password === PASSWORD;
 
     if (path === '/get.php') {
-        if (auth) {
-            https.get(M3U_URL, (m3uRes) => {
-                res.writeHead(200, { 'Content-Type': 'application/x-mpegurl' });
-                m3uRes.pipe(res);
-            }).on('error', (e) => {
-                res.writeHead(500);
-                res.end('Error: ' + e.message);
-            });
-        } else {
-            res.writeHead(401);
-            res.end('Unauthorized');
-        }
+        if (!auth) { res.writeHead(401); return res.end('Unauthorized'); }
+        fetchM3U((err, data) => {
+            if (err) { res.writeHead(500); return res.end('Error'); }
+            res.writeHead(200, { 'Content-Type': 'application/x-mpegurl' });
+            res.end(data);
+        });
     }
     else if (path === '/player_api.php') {
-        if (!auth) {
+        if (!auth) { res.writeHead(401); return res.end(JSON.stringify({ user_info: { auth: 0 } })); }
+        
+        if (query.action === 'get_live_categories') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ user_info: { auth: 0 } }));
-            return;
-        }
-
-        const action = query.action;
-
-        if (!action) {
-            const info = {
-                user_info: {
-                    username: USERNAME,
-                    password: PASSWORD,
-                    message: "Mi Lista IPTV",
-                    auth: 1,
-                    status: "Active",
-                    exp_date: "2556143999",
-                    is_trial: "0",
-                    active_cons: "1",
-                    created_at: "1609459200",
-                    max_connections: "5",
-                    allowed_output_formats: ["m3u8", "ts", "rtmp"]
-                },
-                server_info: {
-                    url: "xtream-server.onrender.com",
-                    port: "80",
-                    https_port: "443",
-                    server_protocol: "http",
-                    rtmp_port: "25462",
-                    timezone: "America/New_York",
-                    timestamp_now: Math.floor(Date.now() / 1000),
-                    time_now: new Date().toISOString()
-                }
-            };
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(info));
-        }
-        else if (action === 'get_live_categories') {
-            const categories = [
+            return res.end(JSON.stringify([
                 { category_id: "1", category_name: "USA VIP", parent_id: 0 },
-                { category_id: "2", category_name: "Deportes", parent_id: 0 },
-                { category_id: "3", category_name: "Noticias", parent_id: 0 },
-                { category_id: "4", category_name: "Peliculas", parent_id: 0 },
-                { category_id: "5", category_name: "Latinoamerica", parent_id: 0 }
-            ];
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(categories));
+                { category_id: "2", category_name: "LAME", parent_id: 0 },
+                { category_id: "3", category_name: "Deportes", parent_id: 0 },
+                { category_id: "4", category_name: "Noticias", parent_id: 0 },
+                { category_id: "5", category_name: "Entretenimiento", parent_id: 0 },
+                { category_id: "6", category_name: "ES", parent_id: 0 },
+                { category_id: "99", category_name: "General", parent_id: 0 }
+            ]));
         }
-        else if (action === 'get_live_streams') {
+        
+        if (query.action === 'get_live_streams') {
             fetchM3U((err, data) => {
-                if (err) {
-                    res.writeHead(500);
-                    res.end('[]');
-                    return;
-                }
+                if (err) { res.writeHead(500); return res.end('[]'); }
                 const lines = data.split('\n');
                 const streams = [];
                 let id = 1;
@@ -100,16 +57,16 @@ const server = http.createServer((req, res) => {
                         const groupMatch = lines[i].match(/group-title="([^"]*)"/);
                         const logoMatch = lines[i].match(/tvg-logo="([^"]*)"/);
                         const streamUrl = lines[i+1] ? lines[i+1].trim() : '';
-                        if (streamUrl && !streamUrl.startsWith('#')) {
+                        if (streamUrl && nameMatch) {
                             streams.push({
                                 num: id,
-                                name: nameMatch ? nameMatch[1].trim() : 'Canal ' + id,
+                                name: nameMatch[1].trim(),
                                 stream_type: "live",
                                 stream_id: id,
                                 stream_icon: logoMatch ? logoMatch[1] : '',
                                 epg_channel_id: '',
                                 added: '1609459200',
-                                category_id: '1',
+                                category_id: '99',
                                 custom_sid: '',
                                 tv_archive: 0,
                                 direct_source: streamUrl,
@@ -122,27 +79,27 @@ const server = http.createServer((req, res) => {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(streams));
             });
+            return;
         }
-        else if (action === 'get_vod_categories') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end('[]');
-        }
-        else if (action === 'get_vod_streams') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end('[]');
-        }
-        else if (action === 'get_series_categories') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end('[]');
-        }
-        else if (action === 'get_series') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end('[]');
-        }
-        else {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end('[]');
-        }
+
+        const info = {
+            user_info: {
+                username: USERNAME, password: PASSWORD,
+                message: "Mi Lista IPTV", auth: 1, status: "Active",
+                exp_date: "2556143999", is_trial: "0", active_cons: "1",
+                created_at: "1609459200", max_connections: "5",
+                allowed_output_formats: ["m3u8", "ts", "rtmp"]
+            },
+            server_info: {
+                url: "xtream-server.onrender.com", port: "80",
+                https_port: "443", server_protocol: "http",
+                rtmp_port: "25462", timezone: "America/New_York",
+                timestamp_now: Math.floor(Date.now() / 1000),
+                time_now: new Date().toISOString()
+            }
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(info));
     }
     else {
         res.writeHead(200);
@@ -150,6 +107,4 @@ const server = http.createServer((req, res) => {
     }
 });
 
-server.listen(PORT, () => {
-    console.log('Server running on port ' + PORT);
-});
+server.listen(PORT, () => console.log('Server running on port ' + PORT));
