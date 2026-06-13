@@ -69,31 +69,8 @@ function fetchAndParse(callback) {
 }
 
 fetchAndParse((err, s, c) => {
-    if (!err) console.log('Loaded ' + s.length + ' channels, ' + c.length + ' categories');
+    if (!err) console.log('Loaded ' + s.length + ' channels');
 });
-
-function proxyStream(streamUrl, res) {
-    try {
-        const parsedUrl = new URL(streamUrl);
-        const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-            path: parsedUrl.pathname + parsedUrl.search,
-            method: 'GET',
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        };
-        const lib = parsedUrl.protocol === 'https:' ? https : http;
-        const proxyReq = lib.request(options, (proxyRes) => {
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
-            proxyRes.pipe(res);
-        });
-        proxyReq.on('error', () => { res.writeHead(500); res.end(); });
-        proxyReq.end();
-    } catch(e) {
-        res.writeHead(500);
-        res.end();
-    }
-}
 
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
@@ -101,7 +78,7 @@ const server = http.createServer((req, res) => {
     const query = parsedUrl.query;
     const auth = query.username === USERNAME && query.password === PASSWORD;
 
-    // Stream endpoint: /live/nemis/blackedge2026/ID.ts
+    // Redirect stream directly to source
     const streamMatch = path.match(/^\/live\/([^\/]+)\/([^\/]+)\/(\d+)\.(ts|m3u8)$/);
     if (streamMatch) {
         const user = streamMatch[1];
@@ -113,8 +90,10 @@ const server = http.createServer((req, res) => {
         fetchAndParse((err, streams) => {
             if (err) { res.writeHead(500); return res.end(); }
             const channel = streams.find(s => s.stream_id === streamId);
-            if (!channel) { res.writeHead(404); return res.end('Not found'); }
-            proxyStream(channel.direct_source, res);
+            if (!channel) { res.writeHead(404); return res.end(); }
+            // Redirect directly to source URL
+            res.writeHead(302, { 'Location': channel.direct_source });
+            res.end();
         });
         return;
     }
@@ -171,10 +150,6 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify(mapped));
             });
             return;
-        }
-        if (action === 'get_short_epg' || action === 'get_simple_data_table') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ epg_listings: [] }));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('[]');
