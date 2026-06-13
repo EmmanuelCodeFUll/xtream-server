@@ -159,7 +159,7 @@ const server = http.createServer((req, res) => {
                 const host = 'xtream-server.onrender.com';
                 const mapped = streams.map(s => ({
                     ...s,
-                    direct_source: `http://${host}/live/${USERNAME}/${PASSWORD}/${s.stream_id}.ts`
+                    direct_source: s.direct_source
                 }));
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(mapped));
