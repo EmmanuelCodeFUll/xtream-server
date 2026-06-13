@@ -92,8 +92,23 @@ const server = http.createServer((req, res) => {
             const channel = streams.find(s => s.stream_id === streamId);
             if (!channel) { res.writeHead(404); return res.end(); }
             // Redirect directly to source URL
-            res.writeHead(302, { 'Location': channel.direct_source });
-            res.end();
+            const targetUrl = new URL(channel.direct_source);
+            const lib2 = targetUrl.protocol === "https:" ? https : http;
+            const proxyReq = lib2.request({
+                hostname: targetUrl.hostname,
+                port: targetUrl.port || (targetUrl.protocol === "https:" ? 443 : 80),
+                path: targetUrl.pathname + targetUrl.search,
+                method: "GET",
+                headers: { "User-Agent": "Mozilla/5.0", "Connection": "keep-alive" }
+            }, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode, {
+                    "Content-Type": proxyRes.headers["content-type"] || "video/mp2t",
+                    "Transfer-Encoding": "chunked"
+                });
+                proxyRes.pipe(res, { end: true });
+            });
+            proxyReq.on("error", () => { try { res.writeHead(500); res.end(); } catch(e){} });
+            proxyReq.end();
         });
         return;
     }
