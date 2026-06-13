@@ -8,25 +8,28 @@ const PASSWORD = 'blackedge2026';
 const PORT = process.env.PORT || 3000;
 
 let cachedStreams = [];
+let cachedCategories = [];
 let lastFetch = 0;
 
 function fetchAndParse(callback) {
     const now = Date.now();
     if (cachedStreams.length > 0 && (now - lastFetch) < 3600000) {
-        return callback(null, cachedStreams);
+        return callback(null, cachedStreams, cachedCategories);
     }
-    
+
     console.log('Downloading M3U...');
     https.get(M3U_URL, (res) => {
         let data = '';
         res.setEncoding('utf8');
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
-            console.log('M3U downloaded, size: ' + data.length);
+            console.log('Downloaded, size: ' + data.length);
             const lines = data.split(/\r?\n/);
             const streams = [];
+            const groupMap = {};
+            let groupId = 1;
             let id = 1;
-            
+
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (line.startsWith('#EXTINF')) {
@@ -36,6 +39,12 @@ function fetchAndParse(callback) {
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         
+                        const groupName = groupMatch ? groupMatch[1] : 'General';
+                        
+                        if (!groupMap[groupName]) {
+                            groupMap[groupName] = groupId++;
+                        }
+                        
                         streams.push({
                             num: id,
                             name: nameMatch ? nameMatch[1].trim() : 'Canal ' + id,
@@ -44,7 +53,7 @@ function fetchAndParse(callback) {
                             stream_icon: logoMatch ? logoMatch[1] : '',
                             epg_channel_id: '',
                             added: '1609459200',
-                            category_id: '1',
+                            category_id: String(groupMap[groupName]),
                             custom_sid: '',
                             tv_archive: 0,
                             direct_source: nextLine,
@@ -55,11 +64,18 @@ function fetchAndParse(callback) {
                     }
                 }
             }
-            
-            console.log('Parsed ' + streams.length + ' channels');
+
+            const categories = Object.entries(groupMap).map(([name, catId]) => ({
+                category_id: String(catId),
+                category_name: name,
+                parent_id: 0
+            }));
+
+            console.log('Parsed ' + streams.length + ' channels, ' + categories.length + ' categories');
             cachedStreams = streams;
+            cachedCategories = categories;
             lastFetch = now;
-            callback(null, streams);
+            callback(null, streams, categories);
         });
     }).on('error', err => {
         console.log('Error: ' + err.message);
@@ -67,10 +83,9 @@ function fetchAndParse(callback) {
     });
 }
 
-// Pre-load on startup
-fetchAndParse((err, streams) => {
-    if (err) console.log('Startup load failed: ' + err.message);
-    else console.log('Startup: loaded ' + streams.length + ' channels');
+fetchAndParse((err, streams, cats) => {
+    if (err) console.log('Startup failed: ' + err.message);
+    else console.log('Startup: ' + streams.length + ' channels, ' + cats.length + ' categories');
 });
 
 const server = http.createServer((req, res) => {
@@ -95,7 +110,8 @@ const server = http.createServer((req, res) => {
         const action = query.action;
 
         if (!action) {
-            const info = {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
                 user_info: {
                     username: USERNAME, password: PASSWORD,
                     message: "Mi Lista IPTV", auth: 1, status: "Active",
@@ -111,25 +127,28 @@ const server = http.createServer((req, res) => {
                     timestamp_now: Math.floor(Date.now() / 1000),
                     time_now: new Date().toISOString()
                 }
-            };
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify(info));
+            }));
         }
 
         if (action === 'get_live_categories') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify([
-                { category_id: "1", category_name: "Todos los Canales", parent_id: 0 }
-            ]));
+            fetchAndParse((err, streams, cats) => {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(err ? [] : cats));
+            });
+            return;
         }
 
         if (action === 'get_live_streams') {
             fetchAndParse((err, streams) => {
-                if (err) { res.writeHead(500); return res.end('[]'); }
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(streams));
+                res.end(JSON.stringify(err ? [] : streams));
             });
             return;
+        }
+
+        if (action === 'get_short_epg' || action === 'get_simple_data_table') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ epg_listings: [] }));
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -137,7 +156,7 @@ const server = http.createServer((req, res) => {
     }
     else {
         res.writeHead(200);
-        res.end('Server OK - Channels: ' + cachedStreams.length);
+        res.end('Server OK - Channels: ' + cachedStreams.length + ' Categories: ' + cachedCategories.length);
     }
 });
 
